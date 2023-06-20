@@ -11,6 +11,7 @@
 
 #define EMM42_MOTOR_N 2 // declare how many motors do you want to use
 
+static abort_on = true; // if true, abort on error
 
 static portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -449,7 +450,9 @@ float emm42_servo_uart_read_encoder(emm42_conf_t emm42_conf, uint8_t address)
     if (cnt >= EMM42_UART_MAX_REPEAT)
     {
         ESP_LOGE(TAG, "UART read timeout");
-        abort();
+
+        if (abort_on == true)
+            abort();
     }
 
     uint16_t value = response[1] << 8 | response[2];
@@ -498,7 +501,9 @@ int32_t emm42_servo_uart_read_pulses(emm42_conf_t emm42_conf, uint8_t address)
     if (cnt >= EMM42_UART_MAX_REPEAT)
     {
         ESP_LOGE(TAG, "UART read timeout");
-        abort();
+
+        if (abort_on == true)
+            abort();
     }
 
     int32_t pulses = response[1] << 24 | response[2] << 16 | response[3] << 8 | response[4];
@@ -545,7 +550,9 @@ float emm42_servo_uart_read_motor_pos(emm42_conf_t emm42_conf, uint8_t address)
     if (cnt >= EMM42_UART_MAX_REPEAT)
     {
         ESP_LOGE(TAG, "UART read timeout");
-        abort();
+
+        if (abort_on == true)
+            abort();
     }
 
     uint16_t value = response[1] << 24 | response[2] << 16 | response[3] << 8 | response[4];
@@ -594,7 +601,9 @@ float emm42_servo_uart_read_motor_shaft_error(emm42_conf_t emm42_conf, uint8_t a
     if (cnt >= EMM42_UART_MAX_REPEAT)
     {
         ESP_LOGE(TAG, "UART read timeout");
-        abort();
+
+        if (abort_on == true)
+            abort();
     }
 
     int16_t value = response[1] << 8 | response[2];
@@ -642,7 +651,9 @@ uint8_t emm42_servo_uart_read_enable(emm42_conf_t emm42_conf, uint8_t address)
     if (cnt >= EMM42_UART_MAX_REPEAT)
     {
         ESP_LOGE(TAG, "UART read timeout");
-        abort();
+
+        if (abort_on == true)
+            abort();
     }
 
     return response[1];
@@ -710,7 +721,9 @@ uint8_t emm42_servo_uart_read_stall_flag(emm42_conf_t emm42_conf, uint8_t addres
     if (cnt >= EMM42_UART_MAX_REPEAT)
     {
         ESP_LOGE(TAG, "UART read timeout");
-        abort();
+
+        if (abort_on == true)
+            abort();
     }
 
     return response[1];
