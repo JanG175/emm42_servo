@@ -11,7 +11,7 @@
 
 #define EMM42_MOTOR_N 2 // declare how many motors do you want to use
 
-static abort_on = true; // if true, abort on error
+static bool abort_on = true; // if true, abort on error
 
 static portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
 
