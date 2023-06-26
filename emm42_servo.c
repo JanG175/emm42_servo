@@ -95,9 +95,7 @@ static void emm42_servo_uart_recv(emm42_conf_t emm42_conf, uint8_t* datagram, ui
     if (buf == len)
     {
         for (uint32_t i = 0; i < buf; i++)
-        {
             datagram[i] = data[i];
-        }
     }
     else
     {
@@ -837,8 +835,8 @@ void emm42_servo_uart_set_enable(emm42_conf_t emm42_conf, uint8_t address, uint8
  * 
  * @param emm42_conf struct with emm42 configs
  * @param address emm42 slave address
- * @param speed desired speed (MSB - direction)
- * @param accel desired acceleration (255 - run without acceleration)
+ * @param speed desired speed (-1279 - 1279)
+ * @param accel desired acceleration (0 - 255 [run without acceleration])
  */
 void emm42_servo_uart_turn(emm42_conf_t emm42_conf, uint8_t address, int16_t speed, uint8_t accel)
 {
@@ -925,9 +923,9 @@ void emm42_servo_uart_clear_turn_params(emm42_conf_t emm42_conf, uint8_t address
  * 
  * @param emm42_conf struct with emm42 configs
  * @param address emm42 slave address
- * @param speed desired speed (MSB - direction)
- * @param accel desired acceleration (255 - run without acceleration)
- * @param pulse desired position (3 bytes)
+ * @param speed desired speed (-1279 - 1279)
+ * @param accel desired acceleration (0 - 255 [run without acceleration])
+ * @param pulse desired position (0 - 16777215)
  */
 void emm42_servo_uart_move(emm42_conf_t emm42_conf, uint8_t address, int16_t speed, uint8_t accel, uint32_t pulse)
 {
