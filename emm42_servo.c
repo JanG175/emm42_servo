@@ -15,8 +15,8 @@ static bool abort_on = true; // if true, abort on error
 
 static portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
 
-static gptimer_handle_t gptimer[EMM42_MOTOR_N];// = {NULL, NULL};
-static int64_t steps_left[EMM42_MOTOR_N];// = {0, 0};
+static gptimer_handle_t gptimer[EMM42_MOTOR_N];
+static int64_t steps_left[EMM42_MOTOR_N];
 
 static const uint32_t timer_N = EMM42_MOTOR_N; // number of timers
 
@@ -94,7 +94,7 @@ static void emm42_servo_uart_recv(emm42_conf_t emm42_conf, uint8_t* datagram, ui
 
     if (buf == len)
     {
-        for (int i = 0; i < buf; i++)
+        for (uint32_t i = 0; i < buf; i++)
         {
             datagram[i] = data[i];
         }
@@ -103,7 +103,7 @@ static void emm42_servo_uart_recv(emm42_conf_t emm42_conf, uint8_t* datagram, ui
     {
         ESP_LOGE(TAG, "UART read error");
 
-        for (int i = 0; i < len; i++)
+        for (uint32_t i = 0; i < len; i++)
             datagram[i] = 0;
     }
 }
@@ -457,7 +457,7 @@ float emm42_servo_uart_read_encoder(emm42_conf_t emm42_conf, uint8_t address)
 
     uint16_t value = response[1] << 8 | response[2];
 
-    float encoder_value = (float)value * 360.0f / 65535.0f;
+    float encoder_value = (float)value * 360.0f / 65536.0f;
 
     return encoder_value;
 }
@@ -555,9 +555,9 @@ float emm42_servo_uart_read_motor_pos(emm42_conf_t emm42_conf, uint8_t address)
             abort();
     }
 
-    uint16_t value = response[1] << 24 | response[2] << 16 | response[3] << 8 | response[4];
+    int32_t value = response[1] << 24 | response[2] << 16 | response[3] << 8 | response[4];
 
-    float motor_pos = (float)value * 360.0f / 65535.0f;
+    float motor_pos = (float)value * 360.0f / 65536.0f;
 
     return motor_pos;
 }
@@ -608,7 +608,7 @@ float emm42_servo_uart_read_motor_shaft_error(emm42_conf_t emm42_conf, uint8_t a
 
     int16_t value = response[1] << 8 | response[2];
 
-    float shaft_error = (float)value * 360.0f / 65535.0f;
+    float shaft_error = (float)value * 360.0f / 65536.0f;
 
     return shaft_error;
 }
@@ -842,6 +842,18 @@ void emm42_servo_uart_set_enable(emm42_conf_t emm42_conf, uint8_t address, uint8
  */
 void emm42_servo_uart_turn(emm42_conf_t emm42_conf, uint8_t address, int16_t speed, uint8_t accel)
 {
+    if (abs(speed) > 0x4FF)
+    {
+        speed = speed / abs(speed) * 0x4FF;
+        ESP_LOGW(TAG, "Too high speed value.");
+    }
+
+    if (speed < 0)
+    {
+        speed = -speed;
+        speed = speed | (1 << 15);
+    }
+
     uint8_t len_w = 6;
     uint8_t datagram[len_w];
 
@@ -919,6 +931,18 @@ void emm42_servo_uart_clear_turn_params(emm42_conf_t emm42_conf, uint8_t address
  */
 void emm42_servo_uart_move(emm42_conf_t emm42_conf, uint8_t address, int16_t speed, uint8_t accel, uint32_t pulse)
 {
+    if (abs(speed) > 0x4FF)
+    {
+        speed = speed / abs(speed) * 0x4FF;
+        ESP_LOGW(TAG, "Too high speed value.");
+    }
+
+    if (pulse > 0xFFFFFF)
+    {
+        pulse = 0xFFFFFF;
+        ESP_LOGW(TAG, "Too high pulse value.");
+    }
+
     if (speed < 0)
     {
         speed = -speed;
