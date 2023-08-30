@@ -555,7 +555,7 @@ float emm42_servo_uart_read_motor_pos(emm42_conf_t emm42_conf, uint8_t address)
 
     int32_t value = response[1] << 24 | response[2] << 16 | response[3] << 8 | response[4];
 
-    float motor_pos = (float)value * 360.0f / 65536.0f;
+    float motor_pos = (float)value / 65536.0f * 360.0f;
 
     return motor_pos;
 }
@@ -971,4 +971,28 @@ void emm42_servo_uart_move(emm42_conf_t emm42_conf, uint8_t address, int16_t spe
     datagram[8] = emm42_servo_uart_calc_CRC(datagram, len_w, crc);
 
     emm42_servo_uart_send(emm42_conf, datagram, len_w);
+
+    // wait until motor stops
+    if (speed != 0 && pulse != 0)
+    {
+        uint32_t buf = 0;
+        uint32_t len_r = 3;
+        uint8_t data[len_r];
+
+        while (1)
+        {
+            buf = uart_read_bytes(emm42_conf.uart, data, len_r, portMAX_DELAY);
+            uart_flush(emm42_conf.uart);
+
+            if (buf == len_r)
+            {
+                if (data[0] == address && data[1] == 0x9F)
+                    break;
+            }
+            else
+                ESP_LOGE(TAG, "UART read error - move not ended");
+        }
+    }
+    else
+        vTaskDelay(1);
 }
