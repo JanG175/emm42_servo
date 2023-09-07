@@ -147,7 +147,7 @@ static void emm42_uart_recv_check(emm42_conf_t emm42_conf, uint8_t address, uint
  * @param user_ctx user context
  * @return true - if high priority task was woken up; false - otherwise
  */
-static bool emm42_clk_timer_callback(gptimer_handle_t timer, const gptimer_alarm_event_data_t* edata, void* user_ctx)
+static bool emm42_servo_clk_timer_callback(gptimer_handle_t timer, const gptimer_alarm_event_data_t* edata, void* user_ctx)
 {
     BaseType_t high_task_awoken = pdFALSE;
 
@@ -234,7 +234,7 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
         ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer[i], &alarm_config));
 
         gptimer_event_callbacks_t timer_cbs = {
-            .on_alarm = emm42_clk_timer_callback
+            .on_alarm = emm42_servo_clk_timer_callback
         };
 
         cb_arg[i].step_pin = emm42_conf.step_pin[i];
@@ -944,10 +944,6 @@ void emm42_servo_uart_move(emm42_conf_t emm42_conf, uint8_t address, int16_t spe
         {
             buf = uart_read_bytes(emm42_conf.uart, response, len_r, portMAX_DELAY);
             uart_flush(emm42_conf.uart);
-
-            for (uint8_t i = 0; i < buf; i++)
-                printf("%d ", response[i]);
-            printf("\n");
 
             if (buf == len_r)
             {
