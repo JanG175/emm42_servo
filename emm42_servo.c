@@ -11,6 +11,8 @@
 
 #define EMM42_MOTOR_N 2 // declare how many motors do you want to use
 
+// #define EMM42_PC_RETURN 1 // define if you want to return message to PC
+
 static bool abort_on = true; // if true, abort on error
 
 static portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
@@ -39,6 +41,8 @@ static uint8_t emm42_servo_uart_calc_CRC(uint8_t* datagram, uint32_t len, uint8_
 
     if (crc_type == EMM42_CRC_0x6B)
         crc = 0x6B;
+
+    // add more CRC types here
 
     return crc;
 }
@@ -108,6 +112,34 @@ static void emm42_servo_uart_recv(emm42_conf_t emm42_conf, uint8_t* datagram, ui
 
 
 /**
+ * @brief check if UART response is correct
+ * 
+ * @param emm42_conf struct with EMM42 connection parameters
+ * @param address emm42 slave address
+ * @param response pointer to response datagram
+ * @param len_r length of response datagram
+ */
+static void emm42_uart_recv_check(emm42_conf_t emm42_conf, uint8_t address, uint8_t* response, uint8_t len_r)
+{
+    uint32_t cnt = 0;
+
+    do
+    {
+        emm42_servo_uart_recv(emm42_conf, response, len_r);
+        cnt++;
+    } while ((response[0] != address || emm42_servo_uart_check_CRC(response, len_r, crc) == false) && (cnt < EMM42_UART_MAX_REPEAT));
+
+    if (cnt >= EMM42_UART_MAX_REPEAT)
+    {
+        ESP_LOGE(TAG, "UART read timeout");
+
+        if (abort_on == true)
+            abort();
+    }
+}
+
+
+/**
  * @brief callback function for timers
  * 
  * @param timer timer handle
@@ -115,7 +147,7 @@ static void emm42_servo_uart_recv(emm42_conf_t emm42_conf, uint8_t* datagram, ui
  * @param user_ctx user context
  * @return true - if high priority task was woken up; false - otherwise
  */
-static bool clk_timer_callback(gptimer_handle_t timer, const gptimer_alarm_event_data_t* edata, void* user_ctx)
+static bool emm42_clk_timer_callback(gptimer_handle_t timer, const gptimer_alarm_event_data_t* edata, void* user_ctx)
 {
     BaseType_t high_task_awoken = pdFALSE;
 
@@ -202,7 +234,7 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
         ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer[i], &alarm_config));
 
         gptimer_event_callbacks_t timer_cbs = {
-            .on_alarm = clk_timer_callback
+            .on_alarm = emm42_clk_timer_callback
         };
 
         cb_arg[i].step_pin = emm42_conf.step_pin[i];
@@ -437,21 +469,7 @@ float emm42_servo_uart_read_encoder(emm42_conf_t emm42_conf, uint8_t address)
 
     emm42_servo_uart_send(emm42_conf, datagram, len_w);
 
-    uint32_t cnt = 0;
-
-    do
-    {
-        emm42_servo_uart_recv(emm42_conf, response, len_r);
-        cnt++;
-    } while ((response[0] != address || emm42_servo_uart_check_CRC(datagram, len_r, crc) != false) && (cnt < EMM42_UART_MAX_REPEAT));
-
-    if (cnt >= EMM42_UART_MAX_REPEAT)
-    {
-        ESP_LOGE(TAG, "UART read timeout");
-
-        if (abort_on == true)
-            abort();
-    }
+    emm42_uart_recv_check(emm42_conf, address, response, len_r);
 
     uint16_t value = response[1] << 8 | response[2];
 
@@ -488,21 +506,7 @@ int32_t emm42_servo_uart_read_pulses(emm42_conf_t emm42_conf, uint8_t address)
 
     emm42_servo_uart_send(emm42_conf, datagram, len_w);
 
-    uint32_t cnt = 0;
-
-    do
-    {
-        emm42_servo_uart_recv(emm42_conf, response, len_r);
-        cnt++;
-    } while ((response[0] != address || emm42_servo_uart_check_CRC(datagram, len_r, crc) != false) && (cnt < EMM42_UART_MAX_REPEAT));
-
-    if (cnt >= EMM42_UART_MAX_REPEAT)
-    {
-        ESP_LOGE(TAG, "UART read timeout");
-
-        if (abort_on == true)
-            abort();
-    }
+    emm42_uart_recv_check(emm42_conf, address, response, len_r);
 
     int32_t pulses = response[1] << 24 | response[2] << 16 | response[3] << 8 | response[4];
 
@@ -537,25 +541,11 @@ float emm42_servo_uart_read_motor_pos(emm42_conf_t emm42_conf, uint8_t address)
 
     emm42_servo_uart_send(emm42_conf, datagram, len_w);
 
-    uint32_t cnt = 0;
+    emm42_uart_recv_check(emm42_conf, address, response, len_r);
 
-    do
-    {
-        emm42_servo_uart_recv(emm42_conf, response, len_r);
-        cnt++;
-    } while ((response[0] != address || emm42_servo_uart_check_CRC(datagram, len_r, crc) != false) && (cnt < EMM42_UART_MAX_REPEAT));
+    int32_t value = (int32_t)response[1] << 24 | (int32_t)response[2] << 16 | (int32_t)response[3] << 8 | (int32_t)response[4];
 
-    if (cnt >= EMM42_UART_MAX_REPEAT)
-    {
-        ESP_LOGE(TAG, "UART read timeout");
-
-        if (abort_on == true)
-            abort();
-    }
-
-    int32_t value = response[1] << 24 | response[2] << 16 | response[3] << 8 | response[4];
-
-    float motor_pos = (float)value / 65536.0f * 360.0f;
+    float motor_pos = (float)value * 360.0f / 65536.0f ;
 
     return motor_pos;
 }
@@ -588,21 +578,7 @@ float emm42_servo_uart_read_motor_shaft_error(emm42_conf_t emm42_conf, uint8_t a
 
     emm42_servo_uart_send(emm42_conf, datagram, len_w);
 
-    uint32_t cnt = 0;
-
-    do
-    {
-        emm42_servo_uart_recv(emm42_conf, response, len_r);
-        cnt++;
-    } while ((response[0] != address || emm42_servo_uart_check_CRC(datagram, len_r, crc) != false) && (cnt < EMM42_UART_MAX_REPEAT));
-
-    if (cnt >= EMM42_UART_MAX_REPEAT)
-    {
-        ESP_LOGE(TAG, "UART read timeout");
-
-        if (abort_on == true)
-            abort();
-    }
+    emm42_uart_recv_check(emm42_conf, address, response, len_r);
 
     int16_t value = response[1] << 8 | response[2];
 
@@ -638,21 +614,7 @@ uint8_t emm42_servo_uart_read_enable(emm42_conf_t emm42_conf, uint8_t address)
 
     emm42_servo_uart_send(emm42_conf, datagram, len_w);
 
-    uint32_t cnt = 0;
-
-    do
-    {
-        emm42_servo_uart_recv(emm42_conf, response, len_r);
-        cnt++;
-    } while ((response[0] != address || emm42_servo_uart_check_CRC(datagram, len_r, crc) != false) && (cnt < EMM42_UART_MAX_REPEAT));
-
-    if (cnt >= EMM42_UART_MAX_REPEAT)
-    {
-        ESP_LOGE(TAG, "UART read timeout");
-
-        if (abort_on == true)
-            abort();
-    }
+    emm42_uart_recv_check(emm42_conf, address, response, len_r);
 
     return response[1];
 }
@@ -708,21 +670,7 @@ uint8_t emm42_servo_uart_read_stall_flag(emm42_conf_t emm42_conf, uint8_t addres
 
     emm42_servo_uart_send(emm42_conf, datagram, len_w);
 
-    uint32_t cnt = 0;
-
-    do
-    {
-        emm42_servo_uart_recv(emm42_conf, response, len_r);
-        cnt++;
-    } while ((response[0] != address || emm42_servo_uart_check_CRC(datagram, len_r, crc) != false) && (cnt < EMM42_UART_MAX_REPEAT));
-
-    if (cnt >= EMM42_UART_MAX_REPEAT)
-    {
-        ESP_LOGE(TAG, "UART read timeout");
-
-        if (abort_on == true)
-            abort();
-    }
+    emm42_uart_recv_check(emm42_conf, address, response, len_r);
 
     return response[1];
 }
@@ -949,9 +897,14 @@ void emm42_servo_uart_move(emm42_conf_t emm42_conf, uint8_t address, int16_t spe
 
     uint8_t len_w = 9;
     uint8_t datagram[len_w];
+    uint8_t len_r = 3;
+    uint8_t response[len_r];
 
     for (uint32_t i = 0; i < len_w; i++)
         datagram[i] = 0;
+
+    for (uint32_t i = 0; i < len_r; i++)
+        response[i] = 0;
 
     uint8_t speedH = (uint8_t)(speed >> 8);
     uint8_t speedL = (uint8_t)speed;
@@ -972,21 +925,33 @@ void emm42_servo_uart_move(emm42_conf_t emm42_conf, uint8_t address, int16_t spe
 
     emm42_servo_uart_send(emm42_conf, datagram, len_w);
 
+#ifndef EMM42_PC_RETURN
+
+    // check if message was received correctly
+    while (response[1] != 2)
+        emm42_uart_recv_check(emm42_conf, address, response, len_r);
+
+#endif /*EMM42_PC_RETURN*/
+
+#ifdef EMM42_PC_RETURN
+
     // wait until motor stops
     if (speed != 0 && pulse != 0)
     {
         uint32_t buf = 0;
-        uint32_t len_r = 3;
-        uint8_t data[len_r];
 
         while (1)
         {
-            buf = uart_read_bytes(emm42_conf.uart, data, len_r, portMAX_DELAY);
+            buf = uart_read_bytes(emm42_conf.uart, response, len_r, portMAX_DELAY);
             uart_flush(emm42_conf.uart);
+
+            for (uint8_t i = 0; i < buf; i++)
+                printf("%d ", response[i]);
+            printf("\n");
 
             if (buf == len_r)
             {
-                if (data[0] == address && data[1] == 0x9F)
+                if (response[0] == address && response[1] == 2)
                     break;
             }
             else
@@ -995,4 +960,6 @@ void emm42_servo_uart_move(emm42_conf_t emm42_conf, uint8_t address, int16_t spe
     }
     else
         vTaskDelay(1);
+
+#endif /*EMM42_PC_RETURN*/
 }
