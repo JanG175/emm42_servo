@@ -877,6 +877,8 @@ void emm42_servo_uart_clear_turn_params(emm42_conf_t emm42_conf, uint8_t address
  */
 void emm42_servo_uart_move(emm42_conf_t emm42_conf, uint8_t address, int16_t speed, uint8_t accel, uint32_t pulse)
 {
+    speed = -speed; // CW direction
+
     if (abs(speed) > 0x4FF)
     {
         speed = speed / abs(speed) * 0x4FF;
