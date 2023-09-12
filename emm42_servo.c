@@ -96,6 +96,12 @@ static void emm42_servo_uart_recv(emm42_conf_t emm42_conf, uint8_t* datagram, ui
     buf = uart_read_bytes(emm42_conf.uart, data, len, EMM42_UART_TIMEOUT_MS);
     uart_flush(emm42_conf.uart);
 
+    // // for debug
+    // printf("emm42:\t");
+    // for (uint32_t i = 0; i < buf; i++)
+    //     printf("%2X ", data[i]);
+    // printf("\n");
+
     if (buf == len)
     {
         for (uint32_t i = 0; i < buf; i++)
@@ -116,15 +122,18 @@ static void emm42_servo_uart_recv(emm42_conf_t emm42_conf, uint8_t* datagram, ui
  * 
  * @param emm42_conf struct with EMM42 connection parameters
  * @param address emm42 slave address
+ * @param datagram pointer to send datagram
+ * @param len_w length of send datagram
  * @param response pointer to response datagram
  * @param len_r length of response datagram
  */
-static void emm42_uart_recv_check(emm42_conf_t emm42_conf, uint8_t address, uint8_t* response, uint8_t len_r)
+static void emm42_uart_send_w_recv_check(emm42_conf_t emm42_conf, uint8_t address, uint8_t* datagram, uint8_t len_w, uint8_t* response, uint8_t len_r)
 {
     uint32_t cnt = 0;
 
     do
     {
+        emm42_servo_uart_send(emm42_conf, datagram, len_w);
         emm42_servo_uart_recv(emm42_conf, response, len_r);
         cnt++;
     } while ((response[0] != address || emm42_servo_uart_check_CRC(response, len_r, crc) == false) && (cnt < EMM42_UART_MAX_REPEAT));
@@ -467,9 +476,7 @@ float emm42_servo_uart_read_encoder(emm42_conf_t emm42_conf, uint8_t address)
     datagram[1] = EMM42_ENCODER_READ;
     datagram[2] = emm42_servo_uart_calc_CRC(datagram, len_w, crc);
 
-    emm42_servo_uart_send(emm42_conf, datagram, len_w);
-
-    emm42_uart_recv_check(emm42_conf, address, response, len_r);
+    emm42_uart_send_w_recv_check(emm42_conf, address, datagram, len_w, response, len_r);
 
     uint16_t value = response[1] << 8 | response[2];
 
@@ -504,9 +511,7 @@ int32_t emm42_servo_uart_read_pulses(emm42_conf_t emm42_conf, uint8_t address)
     datagram[1] = EMM42_PULSE_READ;
     datagram[2] = emm42_servo_uart_calc_CRC(datagram, len_w, crc);
 
-    emm42_servo_uart_send(emm42_conf, datagram, len_w);
-
-    emm42_uart_recv_check(emm42_conf, address, response, len_r);
+    emm42_uart_send_w_recv_check(emm42_conf, address, datagram, len_w, response, len_r);
 
     int32_t pulses = response[1] << 24 | response[2] << 16 | response[3] << 8 | response[4];
 
@@ -539,9 +544,7 @@ float emm42_servo_uart_read_motor_pos(emm42_conf_t emm42_conf, uint8_t address)
     datagram[1] = EMM42_MOTOR_POS_READ;
     datagram[2] = emm42_servo_uart_calc_CRC(datagram, len_w, crc);
 
-    emm42_servo_uart_send(emm42_conf, datagram, len_w);
-
-    emm42_uart_recv_check(emm42_conf, address, response, len_r);
+    emm42_uart_send_w_recv_check(emm42_conf, address, datagram, len_w, response, len_r);
 
     int32_t value = (int32_t)response[1] << 24 | (int32_t)response[2] << 16 | (int32_t)response[3] << 8 | (int32_t)response[4];
 
@@ -576,9 +579,7 @@ float emm42_servo_uart_read_motor_shaft_error(emm42_conf_t emm42_conf, uint8_t a
     datagram[1] = EMM42_SHAFT_ERROR_READ;
     datagram[2] = emm42_servo_uart_calc_CRC(datagram, len_w, crc);
 
-    emm42_servo_uart_send(emm42_conf, datagram, len_w);
-
-    emm42_uart_recv_check(emm42_conf, address, response, len_r);
+    emm42_uart_send_w_recv_check(emm42_conf, address, datagram, len_w, response, len_r);
 
     int16_t value = response[1] << 8 | response[2];
 
@@ -612,9 +613,7 @@ uint8_t emm42_servo_uart_read_enable(emm42_conf_t emm42_conf, uint8_t address)
     datagram[1] = EMM42_ENABLE_READ;
     datagram[2] = emm42_servo_uart_calc_CRC(datagram, len_w, crc);
 
-    emm42_servo_uart_send(emm42_conf, datagram, len_w);
-
-    emm42_uart_recv_check(emm42_conf, address, response, len_r);
+    emm42_uart_send_w_recv_check(emm42_conf, address, datagram, len_w, response, len_r);
 
     return response[1];
 }
@@ -668,9 +667,7 @@ uint8_t emm42_servo_uart_read_stall_flag(emm42_conf_t emm42_conf, uint8_t addres
     datagram[1] = EMM42_SHAFT_READ;
     datagram[2] = emm42_servo_uart_calc_CRC(datagram, len_w, crc);
 
-    emm42_servo_uart_send(emm42_conf, datagram, len_w);
-
-    emm42_uart_recv_check(emm42_conf, address, response, len_r);
+    emm42_uart_send_w_recv_check(emm42_conf, address, datagram, len_w, response, len_r);
 
     return response[1];
 }
@@ -923,17 +920,16 @@ void emm42_servo_uart_move(emm42_conf_t emm42_conf, uint8_t address, int16_t spe
     datagram[7] = pulseL;
     datagram[8] = emm42_servo_uart_calc_CRC(datagram, len_w, crc);
 
-    emm42_servo_uart_send(emm42_conf, datagram, len_w);
-
 #ifndef EMM42_PC_RETURN
 
     // check if message was received correctly
-    while (response[1] != 2)
-        emm42_uart_recv_check(emm42_conf, address, response, len_r);
+    while (response[0] != address && response[1] != 2)
+        emm42_uart_send_w_recv_check(emm42_conf, address, datagram, len_w, response, len_r);
 
 #endif /*EMM42_PC_RETURN*/
 
 #ifdef EMM42_PC_RETURN
+    emm42_servo_uart_send(emm42_conf, datagram, len_w);
 
     // wait until motor stops
     if (speed != 0 && pulse != 0)
