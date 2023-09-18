@@ -9,18 +9,16 @@
 #include <stdio.h>
 #include "emm42_servo.h"
 
-#define EMM42_MOTOR_N 2 // declare how many motors do you want to use
-
-// #define EMM42_PC_RETURN 1 // define if you want to return message to PC
-
 static bool abort_on = true; // if true, abort on error
 
+#ifdef EMM42_STEP_MODE_ENABLE
 static portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
 
 static gptimer_handle_t gptimer[EMM42_MOTOR_N];
 static int64_t steps_left[EMM42_MOTOR_N];
 
 static const uint32_t timer_N = EMM42_MOTOR_N; // number of timers
+#endif // EMM42_STEP_MODE_ENABLE
 
 static const char* TAG = "emm42_servo";
 
@@ -148,6 +146,7 @@ static void emm42_uart_send_w_recv_check(emm42_conf_t emm42_conf, uint8_t addres
 }
 
 
+#ifdef EMM42_STEP_MODE_ENABLE
 /**
  * @brief callback function for timers
  * 
@@ -180,6 +179,7 @@ static bool emm42_servo_clk_timer_callback(gptimer_handle_t timer, const gptimer
 
     return (high_task_awoken == pdTRUE);
 }
+#endif // EMM42_STEP_MODE_ENABLE
 
 
 /**
@@ -207,6 +207,7 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
     ESP_ERROR_CHECK(uart_param_config(emm42_conf.uart, &uart_config));
     ESP_ERROR_CHECK(uart_set_pin(emm42_conf.uart, emm42_conf.tx_pin, emm42_conf.rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
 
+#ifdef EMM42_STEP_MODE_ENABLE
     emm42_cb_arg_t* cb_arg = malloc(sizeof(emm42_cb_arg_t) * timer_N); // allocate memory for callback arguments
 
     for (uint32_t i = 0; i < timer_N; i++)
@@ -255,22 +256,26 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
 
         emm42_servo_enable(emm42_conf, i, 1); // enable motor
     }
+#endif // EMM42_STEP_MODE_ENABLE
 }
 
 
 // deinit EMM42 UART and timers
 void emm42_servo_deinit(emm42_conf_t emm42_conf)
 {
+#ifdef EMM42_STEP_MODE_ENABLE
     for (uint32_t i = 0; i < timer_N; i++)
     {
         ESP_ERROR_CHECK(gptimer_disable(gptimer[i]));
         ESP_ERROR_CHECK(gptimer_del_timer(gptimer[i]));
     }
+#endif // EMM42_STEP_MODE_ENABLE
 
     ESP_ERROR_CHECK(uart_driver_delete(emm42_conf.uart));
 }
 
 
+#ifdef EMM42_STEP_MODE_ENABLE
 /**
  * @brief set enable pin
  * 
@@ -400,6 +405,7 @@ void emm42_servo_step_move(emm42_conf_t emm42_conf, int64_t* steps, uint32_t* pe
     // for (uint32_t motor_num = 0; motor_num < timer_N; motor_num++)
     //     ESP_LOGI(TAG, "%lu: %lld", motor_num, steps_left[motor_num] / 2);
 }
+#endif // EMM42_STEP_MODE_ENABLE
 
 
 /**
