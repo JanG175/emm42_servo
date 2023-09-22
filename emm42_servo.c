@@ -271,7 +271,8 @@ void emm42_servo_deinit(emm42_conf_t emm42_conf)
     }
 #endif // EMM42_STEP_MODE_ENABLE
 
-    ESP_ERROR_CHECK(uart_driver_delete(emm42_conf.uart));
+    if (uart_is_driver_installed(emm42_conf.uart) == true)
+        ESP_ERROR_CHECK(uart_driver_delete(emm42_conf.uart));
 }
 
 
