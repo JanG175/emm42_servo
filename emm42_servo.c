@@ -138,7 +138,7 @@ static void emm42_uart_send_w_recv_check(emm42_conf_t emm42_conf, uint8_t addres
 
     if (cnt >= EMM42_UART_MAX_REPEAT)
     {
-        ESP_LOGE(TAG, "UART read timeout");
+        ESP_LOGE(TAG, "%u: UART read timeout", address);
 
         if (abort_on == true)
             abort();
