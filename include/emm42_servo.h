@@ -15,12 +15,8 @@
 #include "esp_log.h"
 
 // EMM42 configs
-// #define EMM42_STEP_MODE_ENABLE 1 // uncomment to enable step mode
-// #define EMM42_PC_RETURN 1 // uncomment if you want to return message to PC
-
-#ifdef EMM42_STEP_MODE_ENABLE
-#define EMM42_MOTOR_N 2 // declare how many motors do you want to use
-#endif // EMM42_STEP_MODE_ENABLE
+#define EMM42_STEP_MODE_ENABLE        1 // uncomment to enable step mode
+// #define EMM42_PC_RETURN            1 // uncomment if you want to return message to PC
 
 // EMM42 control words
 #define EMM42_COMMAND_VALID           0x02
@@ -49,9 +45,6 @@
 #define EMM42_MOVE_FUNC               0xFD
 
 // EMM42 constants
-#define EMM42_TIMER_GROUP             TIMER_GROUP_0
-#define EMM42_TIMER_ID                TIMER_0
-
 #define EMM42_UART_TIMEOUT_MS         (100 / portTICK_PERIOD_MS)
 #define EMM42_UART_MAX_REPEAT         10
 
@@ -66,6 +59,7 @@ typedef struct emm42_conf_t
     gpio_num_t tx_pin;
     gpio_num_t rx_pin;
 #ifdef EMM42_STEP_MODE_ENABLE
+    uint8_t motor_num;
     gpio_num_t* step_pin;
     gpio_num_t* dir_pin;
     gpio_num_t* en_pin;
@@ -84,15 +78,15 @@ void emm42_servo_init(emm42_conf_t emm42_conf);
 void emm42_servo_deinit(emm42_conf_t emm42_conf);
 
 #ifdef EMM42_STEP_MODE_ENABLE
-void emm42_servo_enable(emm42_conf_t emm42_conf, uint32_t motor_num, uint32_t enable);
+void emm42_servo_enable(emm42_conf_t emm42_conf, uint8_t motor_num, bool enable);
 
-void emm42_servo_set_dir(emm42_conf_t emm42_conf, uint32_t motor_num, uint32_t cw);
+void emm42_servo_set_dir(emm42_conf_t emm42_conf, uint8_t motor_num, uint8_t cw);
 
-void emm42_servo_set_period(uint32_t motor_num, uint32_t period_us);
+void emm42_servo_set_period(uint8_t motor_num, uint64_t period_us);
 
-void emm42_servo_start(emm42_conf_t emm42_conf, uint32_t motor_num, uint32_t start);
+void emm42_servo_start(emm42_conf_t emm42_conf, uint8_t motor_num, bool start);
 
-void emm42_servo_step_move(emm42_conf_t emm42_conf, int64_t* steps, uint32_t* period_us);
+void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t steps, int64_t period_us);
 #endif // EMM42_STEP_MODE_ENABLE
 
 void emm42_servo_uart_calibrate_encoder(emm42_conf_t emm42_conf, uint8_t address);

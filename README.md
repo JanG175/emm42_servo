@@ -7,6 +7,7 @@
 * It is advisory to wait a bit (10 ms) after using `emm42_servo_move` and `emm42_servo_uart_turn`, because of UART leftovers.
 * One full rotation is 200 steps (in 1 microstep mode).
 * After reset servo will zero its position.
+* Every next motor gets next free address in STEP/DIR mode.
 
 ## To do list:
 * add support for other checksums

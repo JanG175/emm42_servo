@@ -14,10 +14,8 @@ static bool abort_on = true; // if true, abort on error
 #ifdef EMM42_STEP_MODE_ENABLE
 static portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
 
-static gptimer_handle_t gptimer[EMM42_MOTOR_N];
-static int64_t steps_left[EMM42_MOTOR_N];
-
-static const uint32_t timer_N = EMM42_MOTOR_N; // number of timers
+static gptimer_handle_t* gptimer;
+static uint64_t* steps_left;
 #endif // EMM42_STEP_MODE_ENABLE
 
 static const char* TAG = "emm42_servo";
@@ -161,18 +159,22 @@ static bool emm42_servo_clk_timer_callback(gptimer_handle_t timer, const gptimer
 
     emm42_cb_arg_t cb_arg = *(emm42_cb_arg_t*)user_ctx;
     gpio_num_t step_pin = cb_arg.step_pin;
-    uint32_t motor_num = cb_arg.motor_num;
+    uint8_t motor_num = cb_arg.motor_num;
 
-    if (steps_left[motor_num] > 0)
+    portENTER_CRITICAL_ISR(&spinlock);
+    uint64_t steps = steps_left[motor_num];
+    portEXIT_CRITICAL_ISR(&spinlock);
+
+    if (steps > 0)
     {
         if (gpio_get_level(step_pin) == 0)
             gpio_set_level(step_pin, 1);
         else
             gpio_set_level(step_pin, 0);
 
-        portENTER_CRITICAL(&spinlock);
+        portENTER_CRITICAL_ISR(&spinlock);
         steps_left[motor_num]--;
-        portEXIT_CRITICAL(&spinlock);
+        portEXIT_CRITICAL_ISR(&spinlock);
     }
     else
         ESP_ERROR_CHECK(gptimer_stop(timer));
@@ -208,9 +210,16 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
     ESP_ERROR_CHECK(uart_set_pin(emm42_conf.uart, emm42_conf.tx_pin, emm42_conf.rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
 
 #ifdef EMM42_STEP_MODE_ENABLE
+    uint8_t timer_N = emm42_conf.motor_num; // number of timers
+
+    portENTER_CRITICAL(&spinlock);
+    gptimer = malloc(sizeof(gptimer_handle_t) * timer_N); // allocate memory for timers
+    steps_left = malloc(sizeof(uint64_t) * timer_N); // allocate memory for steps left
+    portEXIT_CRITICAL(&spinlock);
+
     emm42_cb_arg_t* cb_arg = malloc(sizeof(emm42_cb_arg_t) * timer_N); // allocate memory for callback arguments
 
-    for (uint32_t i = 0; i < timer_N; i++)
+    for (uint8_t i = 0; i < timer_N; i++)
     {
         // configure step and dir pins
 
@@ -222,7 +231,7 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
         io_conf.pull_up_en = 0;
         gpio_config(&io_conf);
 
-        emm42_servo_enable(emm42_conf, i, 0);
+        emm42_servo_enable(emm42_conf, i, false);
         emm42_servo_set_dir(emm42_conf, i, EMM42_CW_DIR);
 
         // configure timers
@@ -232,7 +241,6 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
             .direction = GPTIMER_COUNT_UP,
             .resolution_hz = 1000000 // 1 us
         };
-
         ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &gptimer[i]));
 
         gptimer_alarm_config_t alarm_config = {
@@ -240,7 +248,6 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
             .reload_count = 0,
             .flags.auto_reload_on_alarm = true
         };
-
         ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer[i], &alarm_config));
 
         gptimer_event_callbacks_t timer_cbs = {
@@ -248,13 +255,13 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
         };
 
         cb_arg[i].step_pin = emm42_conf.step_pin[i];
-        cb_arg[i].motor_num = i;
+        cb_arg[i].motor_num = i; // every next motor gets next free address
 
         ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer[i], &timer_cbs, (void*)&cb_arg[i]));
 
         ESP_ERROR_CHECK(gptimer_enable(gptimer[i]));
 
-        emm42_servo_enable(emm42_conf, i, 1); // enable motor
+        emm42_servo_enable(emm42_conf, i, true); // enable motor
     }
 #endif // EMM42_STEP_MODE_ENABLE
 }
@@ -264,11 +271,16 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
 void emm42_servo_deinit(emm42_conf_t emm42_conf)
 {
 #ifdef EMM42_STEP_MODE_ENABLE
-    for (uint32_t i = 0; i < timer_N; i++)
+    for (uint8_t i = 0; i < emm42_conf.motor_num; i++)
     {
         ESP_ERROR_CHECK(gptimer_disable(gptimer[i]));
         ESP_ERROR_CHECK(gptimer_del_timer(gptimer[i]));
     }
+
+    portENTER_CRITICAL(&spinlock);
+    free(gptimer);
+    free(steps_left);
+    portEXIT_CRITICAL(&spinlock);
 #endif // EMM42_STEP_MODE_ENABLE
 
     if (uart_is_driver_installed(emm42_conf.uart) == true)
@@ -276,19 +288,23 @@ void emm42_servo_deinit(emm42_conf_t emm42_conf)
 }
 
 
+// ============= STEP MODE FUNCTIONS =============
+
+
 #ifdef EMM42_STEP_MODE_ENABLE
+
 /**
  * @brief set enable pin
  * 
  * @param emm42_conf struct with EMM42 connection parameters
  * @param motor_num motor number
- * @param enable 0 - disable, 1 - enable
+ * @param enable false - disable (1), true - enable (0)
  */
-void emm42_servo_enable(emm42_conf_t emm42_conf, uint32_t motor_num, uint32_t enable)
+void emm42_servo_enable(emm42_conf_t emm42_conf, uint8_t motor_num, bool enable)
 {
-    if (enable == 0)
+    if (enable == true)
         gpio_set_level(emm42_conf.en_pin[motor_num], 0);
-    else if (enable == 1)
+    else if (enable == false)
         gpio_set_level(emm42_conf.en_pin[motor_num], 1);
 }
 
@@ -300,12 +316,9 @@ void emm42_servo_enable(emm42_conf_t emm42_conf, uint32_t motor_num, uint32_t en
  * @param motor_num motor number
  * @param dir direction (EMM42_CW_DIR or EMM42_CCW_DIR)
  */
-void emm42_servo_set_dir(emm42_conf_t emm42_conf, uint32_t motor_num, uint32_t dir)
+void emm42_servo_set_dir(emm42_conf_t emm42_conf, uint8_t motor_num, uint8_t dir)
 {
-    if (dir == EMM42_CW_DIR)
-        gpio_set_level(emm42_conf.dir_pin[motor_num], 0);
-    else if (dir == EMM42_CCW_DIR)
-        gpio_set_level(emm42_conf.dir_pin[motor_num], 1);
+    gpio_set_level(emm42_conf.dir_pin[motor_num], dir);
 }
 
 
@@ -315,11 +328,8 @@ void emm42_servo_set_dir(emm42_conf_t emm42_conf, uint32_t motor_num, uint32_t d
  * @param motor_num motor number
  * @param period_us period in us
  */
-void emm42_servo_set_period(uint32_t motor_num, uint32_t period_us)
+void emm42_servo_set_period(uint8_t motor_num, uint64_t period_us)
 {
-    if (period_us < 500)
-        ESP_LOGW(TAG, "Period is too small, motor might not work properly!");
-
     period_us = period_us / 2; // 1 period = 2 gpio switches
 
     gptimer_alarm_config_t alarm_config = {
@@ -327,7 +337,6 @@ void emm42_servo_set_period(uint32_t motor_num, uint32_t period_us)
         .reload_count = 0,
         .flags.auto_reload_on_alarm = true
     };
-
     ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer[motor_num], &alarm_config));
 }
 
@@ -337,16 +346,16 @@ void emm42_servo_set_period(uint32_t motor_num, uint32_t period_us)
  * 
  * @param emm42_conf struct with EMM42 connection parameters
  * @param motor_num motor number
- * @param start 0 - stop, 1 - start
+ * @param start false - stop, true - start
  */
-void emm42_servo_start(emm42_conf_t emm42_conf, uint32_t motor_num, uint32_t start)
+void emm42_servo_start(emm42_conf_t emm42_conf, uint8_t motor_num, bool start)
 {
-    if (start == 0)
+    if (start == false)
     {
         ESP_ERROR_CHECK(gptimer_stop(gptimer[motor_num]));
         gpio_set_level(emm42_conf.step_pin[motor_num], 0);
     }
-    else if (start == 1)
+    else if (start == true)
     {
         ESP_ERROR_CHECK(gptimer_start(gptimer[motor_num]));
     }
@@ -354,59 +363,40 @@ void emm42_servo_start(emm42_conf_t emm42_conf, uint32_t motor_num, uint32_t sta
 
 
 /**
- * @brief move all motors by desired number of steps with desired period and direction (sign in steps variable)
+ * @brief move motor by desired number of steps with desired period and direction (sign in period_us variable)
  * 
  * @param emm42_conf struct with EMM42 connection parameters
- * @param steps array of steps for each motor
- * @param period_us array of periods for each motor
+ * @param motor_num motor number
+ * @param steps steps number
+ * @param period_us period in us
  */
-void emm42_servo_step_move(emm42_conf_t emm42_conf, int64_t* steps, uint32_t* period_us)
+void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t steps, int64_t period_us)
 {
-    for (uint32_t motor_num = 0; motor_num < timer_N; motor_num++)
+    // set direction
+    if (period_us < 0)
     {
-        // set direction
-        if (steps[motor_num] < 0)
-        {
-            emm42_servo_set_dir(emm42_conf, motor_num, 0);
-            steps[motor_num] = -steps[motor_num];
-        }
-        else
-            emm42_servo_set_dir(emm42_conf, motor_num, 1);
-
-        // set period
-        emm42_servo_set_period(motor_num, period_us[motor_num]);
-
-        // set number of steps
-        portENTER_CRITICAL(&spinlock);
-        steps_left[motor_num] = 2 * steps[motor_num];
-        portEXIT_CRITICAL(&spinlock);
+        emm42_servo_set_dir(emm42_conf, motor_num, EMM42_CW_DIR);
+        period_us = -period_us;
     }
+    else
+        emm42_servo_set_dir(emm42_conf, motor_num, EMM42_CCW_DIR);
 
-    // start all motors one by one
-    for (uint32_t motor_num = 0; motor_num < timer_N; motor_num++)
-        emm42_servo_start(emm42_conf, motor_num, 1);
+    // set period
+    emm42_servo_set_period(motor_num, period_us);
 
-    bool end_wait = false;
+    // set number of steps
+    portENTER_CRITICAL(&spinlock);
+    steps_left[motor_num] = 2 * steps; // 1 period = 2 gpio switches
+    portEXIT_CRITICAL(&spinlock);
 
-    // wait until all motors stop
-    while (end_wait == false)
-    {
-        int64_t steps_left_status = 0;
-
-        for (uint32_t motor_num = 0; motor_num < timer_N; motor_num++)
-            steps_left_status = steps_left_status + steps_left[motor_num];
-
-        if (steps_left_status <= 0)
-            end_wait = true;
-
-        vTaskDelay(1);
-    }
-
-    // // for debug
-    // for (uint32_t motor_num = 0; motor_num < timer_N; motor_num++)
-    //     ESP_LOGI(TAG, "%lu: %lld", motor_num, steps_left[motor_num] / 2);
+    // start timer and step signal
+    emm42_servo_start(emm42_conf, motor_num, true);
 }
+
 #endif // EMM42_STEP_MODE_ENABLE
+
+
+// ============= UART MODE FUNCTIONS =============
 
 
 /**
