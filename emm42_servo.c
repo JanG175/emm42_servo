@@ -751,10 +751,10 @@ void emm42_servo_uart_set_address(emm42_conf_t emm42_conf, uint8_t address, uint
  */
 void emm42_servo_uart_set_enable(emm42_conf_t emm42_conf, uint8_t address, uint8_t en_status)
 {
-    if (en_status != 1 || en_status != 0)
+    if (en_status != 1 && en_status != 0)
     {
-        en_status = 1;
-        ESP_LOGW(TAG, "Invalid enable status. Set to 1.");
+        en_status = 0;
+        ESP_LOGW(TAG, "Invalid enable status. Set to 0.");
     }
 
     uint8_t len_w = 4;
