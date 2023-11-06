@@ -18,6 +18,9 @@
 #define EMM42_STEP_MODE_ENABLE        1 // uncomment to enable step mode
 // #define EMM42_PC_RETURN            1 // uncomment if you want to return message to PC
 
+#define EMM42_STEP_ACCEL              0.00000001f // step per usec^2
+#define EMM42_START_TIME              100 // fraction of total time when acceleration starts
+
 // EMM42 control words
 #define EMM42_COMMAND_VALID           0x02
 #define EMM42_COMMAND_INVALID         0xEE

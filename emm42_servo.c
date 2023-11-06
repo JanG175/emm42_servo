@@ -16,6 +16,9 @@ static portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
 
 static gptimer_handle_t* gptimer;
 static uint64_t* steps_left;
+static uint64_t* tc;
+static uint64_t* tn;
+static uint64_t* period_avg;
 #endif // EMM42_STEP_MODE_ENABLE
 
 static const char* TAG = "emm42_servo";
@@ -163,7 +166,34 @@ static bool emm42_servo_clk_timer_callback(gptimer_handle_t timer, const gptimer
 
     portENTER_CRITICAL_ISR(&spinlock);
     uint64_t steps = steps_left[motor_num];
+    /////////////////////
+    uint64_t time = tc[motor_num];
+    uint64_t per_avg = period_avg[motor_num];
+    uint64_t time_passed = tn[motor_num];
     portEXIT_CRITICAL_ISR(&spinlock);
+
+    // acceleration
+    if (time_passed < time / 2)
+    {
+        double div = EMM42_STEP_ACCEL * (double)time_passed;
+        uint64_t per_cur = (uint64_t)(1.0f / div);
+
+        if (per_cur < per_avg)
+            per_cur = per_avg;
+
+        // change alert
+        emm42_servo_set_period(motor_num, per_cur);
+
+        time_passed += per_cur;
+
+        portENTER_CRITICAL_ISR(&spinlock);
+        tn[motor_num] = time_passed;
+        portEXIT_CRITICAL_ISR(&spinlock);
+    }
+
+    // deceleration
+    /*TODO*/
+    /////////////////////
 
     if (steps > 0)
     {
@@ -215,6 +245,9 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
     portENTER_CRITICAL(&spinlock);
     gptimer = malloc(sizeof(gptimer_handle_t) * timer_N); // allocate memory for timers
     steps_left = malloc(sizeof(uint64_t) * timer_N); // allocate memory for steps left
+    tc = malloc(sizeof(uint64_t) * timer_N); // allocate memory for time counter
+    tn = malloc(sizeof(uint64_t) * timer_N); // allocate memory for passed period
+    period_avg = malloc(sizeof(uint64_t) * timer_N); // allocate memory for average period
     portEXIT_CRITICAL(&spinlock);
 
     emm42_cb_arg_t* cb_arg = malloc(sizeof(emm42_cb_arg_t) * timer_N); // allocate memory for callback arguments
@@ -280,6 +313,9 @@ void emm42_servo_deinit(emm42_conf_t emm42_conf)
     portENTER_CRITICAL(&spinlock);
     free(gptimer);
     free(steps_left);
+    free(tc);
+    free(tn);
+    free(period_avg);
     portEXIT_CRITICAL(&spinlock);
 #endif // EMM42_STEP_MODE_ENABLE
 
@@ -332,6 +368,12 @@ void emm42_servo_set_period(uint8_t motor_num, uint64_t period_us)
 {
     period_us = period_us / 2; // 1 period = 2 gpio switches
 
+    if (period_us == 0)
+    {
+        period_us = 1;
+        ESP_LOGW(TAG, "Period equal 0 - set to 1 us!");
+    }
+
     gptimer_alarm_config_t alarm_config = {
         .alarm_count = period_us,
         .reload_count = 0,
@@ -380,6 +422,15 @@ void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t 
     }
     else
         emm42_servo_set_dir(emm42_conf, motor_num, EMM42_CCW_DIR);
+
+    // acceleration
+    portENTER_CRITICAL(&spinlock);
+    tc[motor_num] = steps * period_us;
+    period_avg[motor_num] = period_us;
+
+    period_us = EMM42_START_TIME;
+    tn[motor_num] = period_us;
+    portEXIT_CRITICAL(&spinlock);
 
     // set period
     emm42_servo_set_period(motor_num, period_us);
