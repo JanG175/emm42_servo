@@ -172,27 +172,41 @@ static bool emm42_servo_clk_timer_callback(gptimer_handle_t timer, const gptimer
     uint64_t time_passed = tn[motor_num];
     portEXIT_CRITICAL_ISR(&spinlock);
 
-    // acceleration
-    if (time_passed < time / 2)
+    uint64_t period_cur = EMM42_START_TIME;
+
+    if (time_passed < time / EMM42_ACCEL_PER) // acceleration
     {
-        double div = EMM42_STEP_ACCEL * (double)time_passed;
-        uint64_t per_cur = (uint64_t)(1.0f / div);
+        if (time != 0 && time_passed != 0)
+        {
+            double v_avg = 1.0f / (double)per_avg;
+            double accel = v_avg / ((double)time / (double)EMM42_ACCEL_PER);
 
-        if (per_cur < per_avg)
-            per_cur = per_avg;
+            period_cur = (uint64_t)(1.0f / (accel * (double)time_passed));
+        }
+    }
+    else if (time_passed > time - time / EMM42_ACCEL_PER) // deceleration
+    {
+        if (time != 0 && time_passed != 0 && time_passed < time)
+        {
+            double v_avg = 1.0f / (double)per_avg;
+            double accel = v_avg / ((double)time / (double)EMM42_ACCEL_PER);
 
-        // change alert
-        emm42_servo_set_period(motor_num, per_cur);
-
-        time_passed += per_cur;
-
-        portENTER_CRITICAL_ISR(&spinlock);
-        tn[motor_num] = time_passed;
-        portEXIT_CRITICAL_ISR(&spinlock);
+            period_cur = (uint64_t)(1.0f / (v_avg - accel * ((double)time_passed - ((double)time - (double)time / (double)EMM42_ACCEL_PER))));
+        }
+    }
+    else
+    {
+        period_cur = per_avg;
     }
 
-    // deceleration
-    /*TODO*/
+    // change alert
+    emm42_servo_set_period(motor_num, period_cur);
+
+    time_passed += period_cur;
+
+    portENTER_CRITICAL_ISR(&spinlock);
+    tn[motor_num] = time_passed;
+    portEXIT_CRITICAL_ISR(&spinlock);
     /////////////////////
 
     if (steps > 0)
