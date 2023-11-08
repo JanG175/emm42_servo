@@ -18,8 +18,7 @@
 #define EMM42_STEP_MODE_ENABLE        1 // uncomment to enable step mode
 // #define EMM42_PC_RETURN            1 // uncomment if you want to return message to PC
 
-#define EMM42_START_TIME              10 // fraction of total time when acceleration starts
-#define EMM42_ACCEL_PER               10 // acceleration percentage
+#define EMM42_ACCEL_PER               0.1f // acceleration percentage
 
 // EMM42 control words
 #define EMM42_COMMAND_VALID           0x02
@@ -73,6 +72,15 @@ typedef struct emm42_cb_arg_t
 {
     gpio_num_t step_pin;
     uint32_t motor_num;
+
+    uint64_t steps_left;
+    uint64_t steps_total;
+    uint64_t period_goal;
+
+    double time_total;
+    double time_passed;
+    double dt;
+    double accel_s;
 } emm42_cb_arg_t;
 
 

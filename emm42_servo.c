@@ -15,10 +15,9 @@ static bool abort_on = true; // if true, abort on error
 static portMUX_TYPE spinlock = portMUX_INITIALIZER_UNLOCKED;
 
 static gptimer_handle_t* gptimer;
-static uint64_t* steps_left;
-static uint64_t* tc;
-static uint64_t* tn;
-static uint64_t* period_avg;
+
+static emm42_cb_arg_t* cb_arg;
+
 #endif // EMM42_STEP_MODE_ENABLE
 
 static const char* TAG = "emm42_servo";
@@ -160,65 +159,42 @@ static bool emm42_servo_clk_timer_callback(gptimer_handle_t timer, const gptimer
 {
     BaseType_t high_task_awoken = pdFALSE;
 
-    emm42_cb_arg_t cb_arg = *(emm42_cb_arg_t*)user_ctx;
-    gpio_num_t step_pin = cb_arg.step_pin;
-    uint8_t motor_num = cb_arg.motor_num;
-
     portENTER_CRITICAL_ISR(&spinlock);
-    uint64_t steps = steps_left[motor_num];
-    /////////////////////
-    uint64_t time = tc[motor_num];
-    uint64_t per_avg = period_avg[motor_num];
-    uint64_t time_passed = tn[motor_num];
+    emm42_cb_arg_t arg = *(emm42_cb_arg_t*)user_ctx;
     portEXIT_CRITICAL_ISR(&spinlock);
 
-    uint64_t period_cur = EMM42_START_TIME;
-
-    if (time_passed < time / EMM42_ACCEL_PER) // acceleration
+    if (arg.steps_left > 0)
     {
-        if (time != 0 && time_passed != 0)
+        if (gpio_get_level(arg.step_pin) == 0)
         {
-            double v_avg = 1.0f / (double)per_avg;
-            double accel = v_avg / ((double)time / (double)EMM42_ACCEL_PER);
+            uint64_t period_cur = arg.period_goal;
 
-            period_cur = (uint64_t)(1.0f / (accel * (double)time_passed));
+            if (arg.time_passed < arg.time_total * EMM42_ACCEL_PER) // acceleration
+            {
+                period_cur = (uint64_t)((arg.accel_s - (double)(arg.steps_total - arg.steps_left)) * arg.dt + 
+                                            (double)arg.period_goal * (1.0f - 1.0f / arg.accel_s));
+            }
+            else if (arg.time_passed > arg.time_total) // deceleration
+            {
+                period_cur = (uint64_t)(((double)arg.steps_total + arg.accel_s - 2.0f * (double)arg.steps_left) * arg.dt + 
+                                            (double)arg.period_goal * (1.0f - 1.0f / arg.accel_s));
+            }
+
+            // change alert period
+            emm42_servo_set_period(arg.motor_num, period_cur);
+
+            arg.time_passed += period_cur;
+            arg.steps_left--;
+            
+            portENTER_CRITICAL_ISR(&spinlock);
+            cb_arg[arg.motor_num].time_passed = arg.time_passed;
+            cb_arg[arg.motor_num].steps_left = arg.steps_left;
+            portEXIT_CRITICAL_ISR(&spinlock);
+
+            gpio_set_level(arg.step_pin, 1);
         }
-    }
-    else if (time_passed > time - time / EMM42_ACCEL_PER) // deceleration
-    {
-        if (time != 0 && time_passed != 0 && time_passed < time)
-        {
-            double v_avg = 1.0f / (double)per_avg;
-            double accel = v_avg / ((double)time / (double)EMM42_ACCEL_PER);
-
-            period_cur = (uint64_t)(1.0f / (v_avg - accel * ((double)time_passed - ((double)time - (double)time / (double)EMM42_ACCEL_PER))));
-        }
-    }
-    else
-    {
-        period_cur = per_avg;
-    }
-
-    // change alert
-    emm42_servo_set_period(motor_num, period_cur);
-
-    time_passed += period_cur;
-
-    portENTER_CRITICAL_ISR(&spinlock);
-    tn[motor_num] = time_passed;
-    portEXIT_CRITICAL_ISR(&spinlock);
-    /////////////////////
-
-    if (steps > 0)
-    {
-        if (gpio_get_level(step_pin) == 0)
-            gpio_set_level(step_pin, 1);
         else
-            gpio_set_level(step_pin, 0);
-
-        portENTER_CRITICAL_ISR(&spinlock);
-        steps_left[motor_num]--;
-        portEXIT_CRITICAL_ISR(&spinlock);
+            gpio_set_level(arg.step_pin, 0);
     }
     else
         ESP_ERROR_CHECK(gptimer_stop(timer));
@@ -258,13 +234,9 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
 
     portENTER_CRITICAL(&spinlock);
     gptimer = malloc(sizeof(gptimer_handle_t) * timer_N); // allocate memory for timers
-    steps_left = malloc(sizeof(uint64_t) * timer_N); // allocate memory for steps left
-    tc = malloc(sizeof(uint64_t) * timer_N); // allocate memory for time counter
-    tn = malloc(sizeof(uint64_t) * timer_N); // allocate memory for passed period
-    period_avg = malloc(sizeof(uint64_t) * timer_N); // allocate memory for average period
+    cb_arg = malloc(sizeof(emm42_cb_arg_t) * timer_N); // allocate memory for callback arguments
     portEXIT_CRITICAL(&spinlock);
 
-    emm42_cb_arg_t* cb_arg = malloc(sizeof(emm42_cb_arg_t) * timer_N); // allocate memory for callback arguments
 
     for (uint8_t i = 0; i < timer_N; i++)
     {
@@ -301,8 +273,10 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
             .on_alarm = emm42_servo_clk_timer_callback
         };
 
+        portENTER_CRITICAL(&spinlock);
         cb_arg[i].step_pin = emm42_conf.step_pin[i];
         cb_arg[i].motor_num = i; // every next motor gets next free address
+        portEXIT_CRITICAL(&spinlock);
 
         ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer[i], &timer_cbs, (void*)&cb_arg[i]));
 
@@ -310,6 +284,8 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
 
         emm42_servo_enable(emm42_conf, i, true); // enable motor
     }
+
+    // free(cb_arg);
 #endif // EMM42_STEP_MODE_ENABLE
 }
 
@@ -326,10 +302,7 @@ void emm42_servo_deinit(emm42_conf_t emm42_conf)
 
     portENTER_CRITICAL(&spinlock);
     free(gptimer);
-    free(steps_left);
-    free(tc);
-    free(tn);
-    free(period_avg);
+    free(cb_arg);
     portEXIT_CRITICAL(&spinlock);
 #endif // EMM42_STEP_MODE_ENABLE
 
@@ -437,22 +410,29 @@ void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t 
     else
         emm42_servo_set_dir(emm42_conf, motor_num, EMM42_CCW_DIR);
 
-    // acceleration
-    portENTER_CRITICAL(&spinlock);
-    tc[motor_num] = steps * period_us;
-    period_avg[motor_num] = period_us;
+    // acceleration parameters
+    double v_goal = 1.0f / (double)period_us;
+    double time = (double)(steps * period_us);
+    double t_0 = time * EMM42_ACCEL_PER;
+    double accel = v_goal / t_0;
+    double s_0 = accel * t_0 * t_0 / 2.0f;
+    double d_t = t_0 / s_0 / s_0;
+    uint64_t period_us_cur = (uint64_t)(s_0 * d_t + (double)period_us * (1.0f - 1.0f / s_0));
 
-    period_us = EMM42_START_TIME;
-    tn[motor_num] = period_us;
+    portENTER_CRITICAL(&spinlock);
+    cb_arg[motor_num].steps_left = steps;
+    cb_arg[motor_num].steps_total = steps;
+    cb_arg[motor_num].period_goal = period_us;
+
+    cb_arg[motor_num].accel_s = s_0;
+
+    cb_arg[motor_num].dt = d_t;
+    cb_arg[motor_num].time_total = time;
+    cb_arg[motor_num].time_passed = period_us_cur;
     portEXIT_CRITICAL(&spinlock);
 
     // set period
-    emm42_servo_set_period(motor_num, period_us);
-
-    // set number of steps
-    portENTER_CRITICAL(&spinlock);
-    steps_left[motor_num] = 2 * steps; // 1 period = 2 gpio switches
-    portEXIT_CRITICAL(&spinlock);
+    emm42_servo_set_period(motor_num, period_us_cur);
 
     // start timer and step signal
     emm42_servo_start(emm42_conf, motor_num, true);
