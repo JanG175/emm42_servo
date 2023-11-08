@@ -169,16 +169,21 @@ static bool emm42_servo_clk_timer_callback(gptimer_handle_t timer, const gptimer
         {
             uint64_t period_cur = arg.period_goal;
 
-            if (arg.time_passed < arg.time_total * EMM42_ACCEL_PER) // acceleration
+            // if (arg.time_passed < arg.time_total * EMM42_ACCEL_PER) // acceleration
+            if ((double)(arg.steps_total - arg.steps_left) < arg.accel_s)
             {
                 period_cur = (uint64_t)((arg.accel_s - (double)(arg.steps_total - arg.steps_left)) * arg.dt + 
                                             (double)arg.period_goal * (1.0f - 1.0f / arg.accel_s));
             }
-            else if (arg.time_passed > arg.time_total) // deceleration
+            // else if (arg.time_passed > arg.time_total) // deceleration
+            else if ((double)arg.steps_left < arg.accel_s)
             {
-                period_cur = (uint64_t)(((double)arg.steps_total + arg.accel_s - 2.0f * (double)arg.steps_left) * arg.dt + 
+                period_cur = (uint64_t)((arg.accel_s - (double)arg.steps_left) * arg.dt +
                                             (double)arg.period_goal * (1.0f - 1.0f / arg.accel_s));
             }
+
+            if (period_cur < arg.period_goal)
+                period_cur = arg.period_goal;
 
             // change alert period
             emm42_servo_set_period(arg.motor_num, period_cur);
@@ -237,7 +242,6 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
     cb_arg = malloc(sizeof(emm42_cb_arg_t) * timer_N); // allocate memory for callback arguments
     portEXIT_CRITICAL(&spinlock);
 
-
     for (uint8_t i = 0; i < timer_N; i++)
     {
         // configure step and dir pins
@@ -284,8 +288,6 @@ void emm42_servo_init(emm42_conf_t emm42_conf)
 
         emm42_servo_enable(emm42_conf, i, true); // enable motor
     }
-
-    // free(cb_arg);
 #endif // EMM42_STEP_MODE_ENABLE
 }
 
@@ -416,8 +418,8 @@ void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t 
     double t_0 = time * EMM42_ACCEL_PER;
     double accel = v_goal / t_0;
     double s_0 = accel * t_0 * t_0 / 2.0f;
-    double d_t = t_0 / s_0 / s_0;
-    uint64_t period_us_cur = (uint64_t)(s_0 * d_t + (double)period_us * (1.0f - 1.0f / s_0));
+    double dt = t_0 / s_0 / s_0;
+    uint64_t period_us_cur = (uint64_t)(s_0 * dt + (double)period_us * (1.0f - 1.0f / s_0));
 
     portENTER_CRITICAL(&spinlock);
     cb_arg[motor_num].steps_left = steps;
@@ -426,8 +428,7 @@ void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t 
 
     cb_arg[motor_num].accel_s = s_0;
 
-    cb_arg[motor_num].dt = d_t;
-    cb_arg[motor_num].time_total = time;
+    cb_arg[motor_num].dt = dt;
     cb_arg[motor_num].time_passed = period_us_cur;
     portEXIT_CRITICAL(&spinlock);
 
