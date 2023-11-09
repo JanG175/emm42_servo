@@ -170,15 +170,9 @@ static bool emm42_servo_clk_timer_callback(gptimer_handle_t timer, const gptimer
             uint64_t period_cur = arg.period_goal;
 
             if ((double)(arg.steps_total - arg.steps_left) < arg.accel_s)
-            {
-                period_cur = (uint64_t)((arg.accel_s - (double)(arg.steps_total - arg.steps_left)) * arg.dt + 
-                                            (double)arg.period_goal * (1.0f - 1.0f / arg.accel_s));
-            }
+                period_cur = (uint64_t)((arg.accel_s - (double)(arg.steps_total - arg.steps_left)) * arg.dt + (double)arg.period_goal);
             else if ((double)arg.steps_left < arg.accel_s)
-            {
-                period_cur = (uint64_t)((arg.accel_s - (double)arg.steps_left) * arg.dt +
-                                            (double)arg.period_goal * (1.0f - 1.0f / arg.accel_s));
-            }
+                period_cur = (uint64_t)((arg.accel_s - (double)arg.steps_left) * arg.dt + (double)arg.period_goal);
 
             if (period_cur < arg.period_goal)
                 period_cur = arg.period_goal;
@@ -438,8 +432,8 @@ void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t 
         double t_0 = time * EMM42_ACCEL_PER;
         double accel = v_goal / t_0;
         double s_0 = accel * t_0 * t_0 / 2.0f;
-        double dt = t_0 / s_0 / s_0;
-        uint64_t period_us_cur = (uint64_t)(s_0 * dt + (double)period_us * (1.0f - 1.0f / s_0));
+        double dt = 2.0f * t_0 / s_0 / s_0;
+        uint64_t period_us_cur = (uint64_t)(s_0 * dt + (double)period_us);
 
         portENTER_CRITICAL(&spinlock);
         cb_arg[motor_num].steps_left = steps;
