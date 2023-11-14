@@ -8,7 +8,6 @@
 * One full rotation is 200 steps (in 1 microstep mode).
 * After reset servo will zero its position.
 * Every next motor gets next free address in STEP/DIR mode.
-* Set acceleration curve in STEP/DIR mode using `EMM42_ACCEL_PER` in `emm42_servo.h`.
 
 ## To do list:
 * add support for other checksums

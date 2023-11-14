@@ -18,8 +18,6 @@
 #define EMM42_STEP_MODE_ENABLE        1 // uncomment to enable step mode
 // #define EMM42_PC_RETURN            1 // uncomment if you want to return message to PC
 
-#define EMM42_ACCEL_PER               0.1f // acceleration percentage
-
 // EMM42 control words
 #define EMM42_COMMAND_VALID           0x02
 #define EMM42_COMMAND_INVALID         0xEE
@@ -96,7 +94,7 @@ void emm42_servo_set_period(uint8_t motor_num, uint64_t period_us);
 
 void emm42_servo_start(emm42_conf_t emm42_conf, uint8_t motor_num, bool start);
 
-void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t steps, int64_t period_us);
+void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t steps, int64_t period_us, float accel_phase);
 #endif // EMM42_STEP_MODE_ENABLE
 
 void emm42_servo_uart_calibrate_encoder(emm42_conf_t emm42_conf, uint8_t address);

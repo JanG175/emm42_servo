@@ -406,14 +406,15 @@ void emm42_servo_start(emm42_conf_t emm42_conf, uint8_t motor_num, bool start)
 
 
 /**
- * @brief move motor by desired number of steps with desired period and direction (sign in period_us variable)
+ * @brief move motor by desired number of steps with desired period and direction (sign in period_us variable) and desired acceleration
  * 
  * @param emm42_conf struct with EMM42 connection parameters
  * @param motor_num motor number
  * @param steps steps number
  * @param period_us period in us
+ * @param accel_phase acceleration phase (0.0f - 1.0f)
  */
-void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t steps, int64_t period_us)
+void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t steps, int64_t period_us, float accel_phase)
 {
     if (steps != 0)
     {
@@ -427,13 +428,20 @@ void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t 
             emm42_servo_set_dir(emm42_conf, motor_num, EMM42_CCW_DIR);
 
         // acceleration parameters
-        double v_goal = 1.0f / (double)period_us;
-        double time = (double)(steps * period_us);
-        double t_0 = time * EMM42_ACCEL_PER;
-        double accel = v_goal / t_0;
-        double s_0 = accel * t_0 * t_0 / 2.0f;
-        double dt = 2.0f * t_0 / s_0 / s_0;
-        uint64_t period_us_cur = (uint64_t)(s_0 * dt + (double)period_us);
+        double s_0 = 0;
+        double dt = 0;
+        uint64_t period_us_cur = period_us;
+
+        if (accel_phase > 0.0 && accel_phase < 1.0)
+        {
+            double v_goal = 1.0f / (double)period_us;
+            double time = (double)(steps * period_us);
+            double t_0 = time * accel_phase;
+            double accel = v_goal / t_0;
+            s_0 = accel * t_0 * t_0 / 2.0f;
+            dt = 2.0f * t_0 / s_0 / s_0;
+            period_us_cur = (uint64_t)(s_0 * dt + (double)period_us);
+        }
 
         portENTER_CRITICAL(&spinlock);
         cb_arg[motor_num].steps_left = steps;
