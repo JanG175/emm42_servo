@@ -432,7 +432,7 @@ void emm42_servo_step_move(emm42_conf_t emm42_conf, uint8_t motor_num, uint64_t 
         double dt = 0;
         uint64_t period_us_cur = period_us;
 
-        if (accel_phase > 0.0 && accel_phase < 1.0)
+        if (accel_phase > 0.0f && accel_phase < 1.0f)
         {
             double v_goal = 1.0f / (double)period_us;
             double time = (double)(steps * period_us);
