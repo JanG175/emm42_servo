@@ -107,7 +107,7 @@ static void emm42_servo_uart_recv(emm42_conf_t emm42_conf, uint8_t* datagram, ui
     }
     else
     {
-        ESP_LOGE(TAG, "UART read error");
+        // ESP_LOGE(TAG, "UART read error");
 
         for (uint32_t i = 0; i < len; i++)
             datagram[i] = 0;
