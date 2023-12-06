@@ -3,7 +3,7 @@
  * @author JanG175
  * @brief EMM42 SERVO SERIAL PROTOCOL LIBRARY
  * 
- * @copyright All rigths reserved (R) 2023
+ * @copyright Apache 2.0
  */
 
 #include <stdio.h>
